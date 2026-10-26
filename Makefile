@@ -1,4 +1,4 @@
-ENV  ?= esp32dev
+ENV  ?= s3
 PORT ?= /dev/ttyUSB0
 BAUD ?= 115200
 BLOB ?= blocklist.bin
