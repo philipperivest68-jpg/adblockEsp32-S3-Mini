@@ -4,6 +4,8 @@
 #include <DNSServer.h>
 #include <Preferences.h>
 
+#define DEVICE_NAME "S3MiniPihole" // setup hotspot SSID + hostname (mDNS/DHCP)
+
 struct Wifi {
     Preferences prefs;
     DNSServer portalDns;

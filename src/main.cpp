@@ -3,13 +3,13 @@
 // Modules: blocklist, clients, dns, wifi, web
 #include <Arduino.h>
 #include <WiFi.h>
+#include "wifi_portal.h"
 #include <LittleFS.h>
 #include <ESPmDNS.h>
 #include "secrets.h"
 #include "blocklist.h"
 #include "clients.h"
 #include "dns.h"
-#include "wifi.h"
 #include "web.h"
 
 void setup() {
@@ -44,9 +44,9 @@ void setup() {
     if (!wifi.connect())
         wifi.runPortal(); // blocks + reboots on save, returns only when connected
     Serial.printf("WiFi up: %s\n", WiFi.localIP().toString().c_str());
-    if (MDNS.begin("c3adblock")) {
+    if (MDNS.begin(DEVICE_NAME)) {
         MDNS.addService("http", "tcp", 80);
-        Serial.println("dashboard: http://c3adblock.local");
+        Serial.println("dashboard: http://" DEVICE_NAME ".local");
     }
     if (strcmp(WEB_PASS, "CHANGE_ME_WEB_PASSWORD") == 0)
         Serial.println("[WARN] secrets.h still has placeholder WEB_PASS — set a real value");

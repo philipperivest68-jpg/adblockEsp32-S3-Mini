@@ -1,5 +1,6 @@
 #include "wifi.h"
 #include <WiFi.h>
+#include <wifi_portal.h>
 #include <WebServer.h>
 #include "secrets.h"
 
@@ -78,7 +79,9 @@ bool Wifi::connect() {
     if (!ssid || !*ssid || strcmp(ssid, "YOUR_WIFI_SSID") == 0)
         return false;
     Serial.printf("WiFi: connecting to \"%s\"%s\n", ssid, ss.length() ? " (provisioned)" : " (secrets.h)");
+    WiFi.setHostname(DEVICE_NAME); // must precede WiFi.mode() to reach DHCP
     WiFi.mode(WIFI_STA);
+    //WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
     WiFi.setSleep(false);
     WiFi.begin(ssid, pass);
     uint32_t t0 = millis();
@@ -116,10 +119,7 @@ void Wifi::runPortal() {
         String ss = esc(WiFi.SSID(i));
         portalOpts += "<option value='" + ss + "'>" + ss + "</option>";
     }
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    char ap[24];
-    snprintf(ap, sizeof(ap), "C3-AdBlock-%02X%02X", mac[4], mac[5]);
+    const char *ap = DEVICE_NAME;
     WiFi.mode(WIFI_AP);
     bool locked = strlen(AP_PASS) >= 8;
     if (locked)

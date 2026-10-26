@@ -27,7 +27,7 @@ upload:
 	pio run -e $(ENV) -t upload --upload-port $(PORT)
 
 blobflash:
-	esptool --chip esp32 --port $(PORT) --baud 460800 write-flash $(BLOFF) $(BLOB)
+	esptool --chip esp32s3 --port $(PORT) --baud 460800 write-flash $(BLOFF) $(BLOB)
 
 flash: upload blobflash
 

@@ -1,6 +1,6 @@
 #include "web.h"
 #include <Arduino.h>
-#include <WiFi.h>
+#include "wifi_portal.h"
 #include <WebServer.h>
 #include <LittleFS.h>
 #include <HTTPClient.h>

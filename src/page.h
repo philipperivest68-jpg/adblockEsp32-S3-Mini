@@ -5,7 +5,7 @@ const char PAGE[] PROGMEM = R"HTML(<!doctype html>
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
-<title>ESP32 AdBlock</title>
+<title>S3MiniPihole</title>
 <style>
   body   { font:14px system-ui,sans-serif; margin:0; background:#0d1117; color:#c9d1d9 }
   header { background:#161b22; padding:14px 18px; border-bottom:1px solid #30363d }
@@ -42,7 +42,7 @@ const char PAGE[] PROGMEM = R"HTML(<!doctype html>
 </style>
 </head>
 <body>
-<header><h1>&#128737; ESP32 AdBlock <span id=host></span></h1></header>
+<header><h1>&#128737; S3MiniPihole <span id=host></span></h1></header>
 <div class=wrap>
 
   <div id=credwarn class=warn>
