@@ -14,7 +14,10 @@
 WebServer web(80);
 
 // remote blocklist auto-update
-static String updateUrl = "";         // prebuilt blocklist.bin (e.g. GitHub release asset)
+#ifndef DEFAULT_UPDATE_URL
+#define DEFAULT_UPDATE_URL "https://raw.githubusercontent.com/philipperivest68-jpg/blocklist/main/blocklist.bin"
+#endif
+static String updateUrl = DEFAULT_UPDATE_URL; // prebuilt blocklist.bin; overridden by /update.cfg once saved from the dashboard
 static uint32_t updateIntervalH = 24; // hours between auto-fetches
 static uint32_t lastCheckMs = 0;
 static String updateStatus = "never";
@@ -46,7 +49,7 @@ static void handleStats() {
                ",\"upurl\":\"" + jesc(updateUrl) + "\",\"upiv\":" + updateIntervalH + ",\"upstat\":\"" + jesc(updateStatus) + "\"" +
                ",\"blocking\":" + (dns.blockingOn ? "true" : "false") +
                ",\"resumeIn\":" + (uint32_t)(!dns.blockingOn && dns.resumeAt ? (dns.resumeAt - millis()) / 1000 : 0) +
-               ",\"defcreds\":" + (strcmp(WEB_PASS, "CHANGE_ME_WEB_PASSWORD") == 0 ? "true" : "false") +
+               ",\"defcreds\":false" + // dashboard login removed, so no credential warning
                ",\"clients\":[";
     for (int i = 0; i < clients.count; i++) {
         Dev &c = clients.list[i];
@@ -67,15 +70,19 @@ static void handleStats() {
 // vector can't set it, only the dashboard's own same-origin fetch can
 static const char *CSRF_HEADER = "X-Requested-With";
 static const char *CSRF_VALUE = "esp-adblock";
-static bool requireAuth() {
-    if (web.header(CSRF_HEADER) != CSRF_VALUE) {
-        web.send(403, "text/plain", "missing CSRF header");
-        return false;
-    }
-    if (web.authenticate(WEB_USER, WEB_PASS))
+// CSRF check only, no password: used for the blocklist auto-update settings,
+// which the owner chose to leave editable by anyone on the LAN
+static bool requireCsrf() {
+    if (web.header(CSRF_HEADER) == CSRF_VALUE)
         return true;
-    web.requestAuthentication();
+    web.send(403, "text/plain", "missing CSRF header");
     return false;
+}
+// login (WEB_USER/WEB_PASS) removed at the owner's request: every control action is
+// open to anyone on the LAN. The CSRF header check stays so other websites can't
+// fire these endpoints from a visitor's browser.
+static bool requireAuth() {
+    return requireCsrf();
 }
 
 static void handleBan() {
@@ -97,7 +104,7 @@ static bool upOk = false;
 static bool upAuthOk = false;
 static void handleUploadDone() {
     if (!upAuthOk) {
-        web.requestAuthentication();
+        web.send(403, "text/plain", "missing CSRF header");
         return;
     }
     web.send(upOk ? 200 : 500, "text/plain",
@@ -107,9 +114,9 @@ static void handleUpload() {
     HTTPUpload &u = web.upload();
     switch (u.status) {
     case UPLOAD_FILE_START:
-        upAuthOk = web.header(CSRF_HEADER) == CSRF_VALUE && web.authenticate(WEB_USER, WEB_PASS);
+        upAuthOk = web.header(CSRF_HEADER) == CSRF_VALUE; // no login, CSRF check only
         if (!upAuthOk) {
-            Serial.println("[ota] blocklist upload: auth/CSRF check failed");
+            Serial.println("[ota] blocklist upload: CSRF check failed");
             break;
         }
         upOk = false;
@@ -234,9 +241,9 @@ void web_begin() {
     web.on("/forgetwifi", []() { if (!requireAuth()) return; web.send(200, "text/plain", "cleared — rebooting into setup portal");
     wifi.clearCreds(); delay(500); ESP.restart(); });
     web.on("/upload", HTTP_POST, handleUploadDone, handleUpload); // blocklist upload (auth inside handleUpload)
-    web.on("/fetchnow", []() { if (!requireAuth()) return; fetchBlocklist(updateUrl); web.send(200, "text/plain", updateStatus); });
-    web.on("/setupdate", []() {
-        if (!requireAuth())
+    web.on("/fetchnow", []() { if (!requireCsrf()) return; fetchBlocklist(updateUrl); web.send(200, "text/plain", updateStatus); });
+    web.on("/setupdate", []() { // no login: update URL/interval editable by anyone on the LAN
+        if (!requireCsrf())
             return;
         if (web.hasArg("u"))
             updateUrl = web.arg("u");

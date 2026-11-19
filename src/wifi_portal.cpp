@@ -27,7 +27,7 @@ static void portalRoot() {
         "<title>AdBlock setup</title>"
         "<body style='font:16px system-ui,sans-serif;max-width:420px;margin:30px auto;padding:0 16px;background:#0d1117;color:#c9d1d9'>"
         "<h2>&#128737; AdBlock — WiFi setup</h2>"
-        "<p style='color:#8b949e'>Pick your home network, enter its password, and tap Connect. The box reboots and joins it.</p>"
+        "<p style='color:#8b949e'>Pick your home network, enter its password, and tap Connect. You'll then see the box's address on your network.</p>"
         "<form method=POST action=/wifisave>"
         "<select name=s style='" + String(inp) + "'>" + wifi.portalOpts + "</select>"
         "<input name=s2 placeholder='or type the network name' style='" + String(inp) + "'>"
@@ -38,6 +38,35 @@ static void portalRoot() {
         "</body>";
     web.send(200, "text/html", html);
 }
+
+static String htmlEsc(const String &s) {
+    String o;
+    for (char c : s) {
+        if (c == '&') o += "&amp;";
+        else if (c == '<') o += "&lt;";
+        else if (c == '>') o += "&gt;";
+        else if (c == '"') o += "&quot;";
+        else if (c == '\'') o += "&#39;";
+        else o += c;
+    }
+    return o;
+}
+
+// Test-join from the portal: the AP stays up (AP+STA) while the STA side joins the
+// chosen network, so the phone can stay on the page and be shown the IP address the
+// router handed out. Creds are only persisted once the join actually succeeds.
+enum JoinState { J_IDLE, J_TRYING, J_OK, J_FAIL };
+static JoinState joinState = J_IDLE;
+static String joinSsid, joinPass;
+static uint32_t joinT0 = 0;
+static const uint32_t JOIN_TIMEOUT_MS = 20000;
+
+static const char PORTAL_HEAD[] =
+    "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>" DEVICE_NAME " setup</title>"
+    "<style>body{font:16px system-ui,sans-serif;max-width:420px;margin:30px auto;padding:0 16px;background:#0d1117;color:#c9d1d9;text-align:center}"
+    ".dim{color:#8b949e}.ip{font:600 30px ui-monospace,monospace;color:#3fb950;margin:14px 0;word-break:break-all}"
+    ".btn{display:block;width:100%;box-sizing:border-box;padding:12px;margin-top:18px;border-radius:6px;border:0;background:#3fb950;color:#000;font:600 16px system-ui;text-decoration:none}</style>";
 
 static void wifiSave() {
     String ss = web.arg("s2"); // manual field wins over the dropdown
@@ -50,16 +79,72 @@ static void wifiSave() {
         web.send(400, "text/plain", "no network selected");
         return;
     }
-    wifi.prefs.begin("wifi", false);
-    wifi.prefs.putString("ssid", ss);
-    wifi.prefs.putString("pass", pw);
-    wifi.prefs.end();
-    web.send(200, "text/html", "<!doctype html><meta charset=utf-8><body style='font:16px system-ui;text-align:center;margin-top:60px;background:#0d1117;color:#c9d1d9'>"
-                               "&#9989; Done. Rebooting and joining <b>" +
-                                   ss + "</b>&hellip;<br><br>"
-                                        "Switch your phone back to your normal WiFi.</body>");
-    delay(900);
-    ESP.restart();
+    joinSsid = ss;
+    joinPass = pw;
+    joinState = J_TRYING;
+    joinT0 = millis();
+    Serial.printf("[setup] trying \"%s\"\n", ss.c_str());
+    WiFi.persistent(false); // creds go to our own NVS namespace, on success only
+    WiFi.setHostname(DEVICE_NAME);
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.begin(ss.c_str(), pw.c_str());
+    String e = htmlEsc(ss);
+    web.send(200, "text/html", String(PORTAL_HEAD) +
+        "<body><h2>&#128737; " DEVICE_NAME "</h2><div id=m>"
+        "<p>Connecting to <b>" + e + "</b>&hellip;</p><p class=dim>This takes up to 20 seconds.</p></div>"
+        "<p id=w class=dim style='display:none'>Lost contact with the setup hotspot. If your phone left "
+        "<b>" DEVICE_NAME "</b>, rejoin it &mdash; this page will continue.</p>"
+        "<script>const m=document.getElementById('m'),w=document.getElementById('w');"
+        "function poll(){fetch('/joinstatus',{cache:'no-store'}).then(r=>r.json()).then(j=>{w.style.display='none';"
+        "if(j.st=='ok'){m.innerHTML='<p>&#9989; Connected to <b>" + e + "</b></p><p class=dim>Your " DEVICE_NAME " address is</p>'"
+        "+'<div class=ip>'+j.ip+'</div><p class=dim>Dashboard: http://'+j.ip+'<br>or http://" DEVICE_NAME ".local<br><br>"
+        "Tip: set this as the DNS server in your router so every device gets ad blocking.</p>'"
+        "+'<a class=btn href=/wifidone>OK</a>';}"
+        "else if(j.st=='fail'){m.innerHTML='<p>&#10060; Could not connect to <b>" + e + "</b>.</p>"
+        "<p class=dim>Check the password and that the network is in range.</p><a class=btn href=/>Try again</a>';}"
+        "else setTimeout(poll,1000)}).catch(()=>{w.style.display='block';setTimeout(poll,1500)})}"
+        "setTimeout(poll,1000)</script></body>");
+}
+
+static void joinStatus() {
+    const char *st = joinState == J_OK ? "ok" : joinState == J_FAIL ? "fail" : joinState == J_TRYING ? "trying" : "idle";
+    String ip = joinState == J_OK ? WiFi.localIP().toString() : "";
+    web.sendHeader("Cache-Control", "no-store");
+    web.send(200, "application/json", String("{\"st\":\"") + st + "\",\"ip\":\"" + ip + "\"}");
+}
+
+static void wifiDone() {
+    String ip = joinState == J_OK ? WiFi.localIP().toString() : String(DEVICE_NAME ".local");
+    web.send(200, "text/html", String(PORTAL_HEAD) +
+        "<body><h2>&#9989; All set</h2><p>" DEVICE_NAME " is restarting and joining your network.</p>"
+        "<p class=dim>Switch your phone back to your normal WiFi, then open<br><b>http://" + ip + "</b></p></body>");
+    if (joinState == J_OK) {
+        delay(900);
+        ESP.restart();
+    }
+}
+
+// called from the portal loop: advance the test-join; true once creds were saved
+static bool pollJoin() {
+    if (joinState != J_TRYING)
+        return false;
+    wl_status_t s = WiFi.status();
+    if (s == WL_CONNECTED) {
+        wifi.prefs.begin("wifi", false);
+        wifi.prefs.putString("ssid", joinSsid);
+        wifi.prefs.putString("pass", joinPass);
+        wifi.prefs.end();
+        joinState = J_OK;
+        Serial.printf("[setup] joined \"%s\", IP %s, saved\n", joinSsid.c_str(), WiFi.localIP().toString().c_str());
+        return true;
+    }
+    if (s == WL_CONNECT_FAILED || millis() - joinT0 > JOIN_TIMEOUT_MS) {
+        WiFi.disconnect();
+        WiFi.mode(WIFI_AP);
+        joinState = J_FAIL;
+        Serial.printf("[setup] could not join \"%s\" (status %d)\n", joinSsid.c_str(), (int)s);
+    }
+    return false;
 }
 
 bool Wifi::hasCreds() {
@@ -130,6 +215,8 @@ void Wifi::runPortal() {
     portalDns.start(53, "*", apIP);
     web.on("/", portalRoot);
     web.on("/wifisave", HTTP_POST, wifiSave);
+    web.on("/joinstatus", joinStatus);
+    web.on("/wifidone", wifiDone);
     // OS captive-detection probes (Android /generate_204, Apple /hotspot-detect.html,
     // Windows /ncsi.txt) hit onNotFound -> redirect them so the phone auto-pops the form
     web.onNotFound([]() {
@@ -139,12 +226,18 @@ void Wifi::runPortal() {
     web.begin();
     Serial.printf("\n[setup] No WiFi. Join network \"%s\" (%s), a setup page pops up (or http://%s)\n",
                   ap, locked ? "password-protected" : "open", apIP.toString().c_str());
-    const bool configured = hasCreds();
+    // after a successful test-join the same timer reboots into normal mode if nobody
+    // taps OK (e.g. the phone dropped off when the AP followed the router's channel)
+    bool configured = hasCreds();
     uint32_t t0 = millis();
     while (true) {
         portalDns.processNextRequest();
         web.handleClient();
         delay(2);
+        if (pollJoin()) {
+            configured = true;
+            t0 = millis();
+        }
         if (WiFi.softAPgetStationNum() > 0)
             t0 = millis();
         if (configured && millis() - t0 > 180000UL) {
