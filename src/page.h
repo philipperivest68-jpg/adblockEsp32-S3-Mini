@@ -37,6 +37,15 @@ const char PAGE[] PROGMEM = R"HTML(<!doctype html>
   .warn { display:none; background:#3b1d1d; border:1px solid #f85149; color:#ffb3ae;
           border-radius:8px; padding:10px 14px; margin-bottom:14px; font-size:13px }
   /* pause / blocking-status bar */
+  /* 24h hourly chart */
+  .hist  { display:flex; align-items:flex-end; gap:3px; height:90px; padding:10px; background:#161b22;
+           border:1px solid #30363d; border-radius:8px; margin-bottom:4px }
+  .hist div { flex:1; display:flex; flex-direction:column-reverse; height:100%; min-width:4px }
+  .hist i { display:block; width:100% }
+  .hist .hb { background:#f85149 } .hist .ha { background:#238636 }
+  .hlbl  { display:flex; justify-content:space-between; color:#8b949e; font-size:11px; margin-bottom:18px }
+  .muted { color:#8b949e }
+  .dom   { word-break:break-all }
   .bar  { display:flex; align-items:center; gap:12px; margin-bottom:14px;
           padding:12px 14px; background:#161b22; border:1px solid #30363d; border-radius:8px }
 </style>
@@ -63,6 +72,27 @@ const char PAGE[] PROGMEM = R"HTML(<!doctype html>
   </div>
 
   <div class=cards id=sys></div>
+
+  <h2>LAST 24 HOURS <span class=muted style=font-weight:normal>(<span style=color:#f85149>&#9632;</span> blocked
+    <span style=color:#238636>&#9632;</span> allowed, per hour)</span></h2>
+  <div class=hist id=hist></div>
+  <div class=hlbl><span>-24h</span><span>-12h</span><span>now</span></div>
+
+  <h2>TOP BLOCKED DOMAINS</h2>
+  <table id=tt>
+    <thead><tr><th>#</th><th>Domain</th><th>Hits</th><th>Last hit</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>RECENTLY BLOCKED <span class=muted style=font-weight:normal>(last 50)</span></h2>
+  <div style=margin-bottom:8px>
+    <input id=rf placeholder="filter by domain or client IP" size=30 oninput=drawRecent()>
+    <button onclick="if(confirm('Clear recent + top blocked lists?'))fetch('/clearlog',{headers:CSRF_HDRS}).then(load)">Clear</button>
+  </div>
+  <table id=rt>
+    <thead><tr><th>When</th><th>Domain</th><th>Client</th><th>Type</th><th>Reason</th></tr></thead>
+    <tbody></tbody>
+  </table>
 
   <h2>CLIENTS</h2>
   <table id=ct>
@@ -111,20 +141,37 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;',
 // A plain <img>/<form> CSRF can't set a custom header, only same-origin fetch()
 // can -- so requiring this on every mutating request blocks drive-by CSRF.
 const CSRF_HDRS={'X-Requested-With':'esp-adblock'}
+const QT={1:'A',2:'NS',5:'CNAME',6:'SOA',12:'PTR',15:'MX',16:'TXT',28:'AAAA',33:'SRV',64:'SVCB',65:'HTTPS'};
+function ago(s){return s<60?s+'s ago':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'}
+let qd={recent:[],top:[],hours:[]};
+function drawRecent(){let f=rf.value.trim().toLowerCase();
+let r=qd.recent.filter(e=>!f||e.d.includes(f)||e.ip.includes(f));
+rt.tBodies[0].innerHTML=r.map(e=>`<tr><td class=muted>${ago(e.age)}</td><td class=dom>${esc(e.d||'(unparsed)')}</td><td>${e.ip}</td>
+<td><span class=tag>${QT[e.qt]||e.qt}</span></td><td>${e.why==1?'<span class=b>client banned</span>':'blocklist'}</td></tr>`).join('')
+||'<tr><td colspan=5 class=muted>'+(f?'no match':'nothing blocked yet')+'</td></tr>';}
+function drawInsights(){
+let mx=Math.max(1,...qd.hours.map(h=>h[0]+h[1]));
+hist.innerHTML=qd.hours.map((h,i)=>{let t=h[0]+h[1],p=t?Math.round(h[0]*100/t):0;
+return `<div title="${23-i}h ago: ${fmt(h[0])} blocked / ${fmt(h[1])} allowed (${p}%)"><i class=hb style=height:${h[0]*100/mx}%></i><i class=ha style=height:${h[1]*100/mx}%></i></div>`}).join('');
+tt.tBodies[0].innerHTML=qd.top.map((e,i)=>`<tr><td class=muted>${i+1}</td><td class=dom>${esc(e.d)}</td><td class=b>${fmt(e.n)}</td><td class=muted>${ago(e.age)}</td></tr>`).join('')
+||'<tr><td colspan=4 class=muted>nothing blocked yet</td></tr>';
+drawRecent();}
 function togglePause(){fetch(blockstate.dataset.on=='1'?'/pause?s='+pausedur.value:'/resume',{headers:CSRF_HDRS}).then(load);}
 async function load(){let s=await(await fetch('/stats.json')).json();
+try{qd=await(await fetch('/blocked.json')).json();drawInsights();}catch(_){}
+let tot=s.blocked+s.allowed,pct=tot?(s.blocked*100/tot).toFixed(1):'0.0';
 host.textContent='@ '+s.ip;
 credwarn.style.display=s.defcreds?'block':'none';
 let on=s.blocking!==false;blockstate.dataset.on=on?'1':'0';
 blockdot.textContent=on?'🛡️':'⏸️';blockbar.style.borderColor=on?'#30363d':'#f0883e';
 blockstate.textContent=on?'Blocking active':(s.resumeIn>0?'Paused — resumes in '+s.resumeIn+'s':'Paused');
 pausebtn.textContent=on?'Pause':'Resume';pausedur.style.display=on?'':'none';
-sys.innerHTML=[['Total blocked',fmt(s.blocked),'b'],['Total allowed',fmt(s.allowed),'a'],['Blocklist',fmt(s.domains)+' domains',''],
+sys.innerHTML=[['Total blocked',fmt(s.blocked),'b'],['Total allowed',fmt(s.allowed),'a'],['Blocked',pct+' %','b'],['Blocklist',fmt(s.domains)+' domains',''],
 ['Clients',s.clients.length,''],['WiFi',s.rssi+' dBm',''],['Temp',s.temp+' °C',''],['Free RAM',Math.round(s.heap/1024)+' KB',''],['Uptime',s.uptime,'']]
 .map(c=>`<div class=card><div class="v ${c[2]}">${c[1]}</div><div class=l>${c[0]}</div></div>`).join('');
 ct.tBodies[0].innerHTML=s.clients.sort((a,b)=>(b.blocked+b.allowed)-(a.blocked+a.allowed)).map(c=>
 `<tr><td>${c.ip}${c.banned?' <span class=tag style=color:#f85149>BANNED</span>':''}</td><td>${c.mac}</td>
-<td class=b>${fmt(c.blocked)}</td><td class=a>${fmt(c.allowed)}</td>
+<td class=b>${fmt(c.blocked)} <span class=muted>(${c.blocked+c.allowed?Math.round(c.blocked*100/(c.blocked+c.allowed)):0}%)</span></td><td class=a>${fmt(c.allowed)}</td>
 <td><button class=ban data-ip="${c.ip}">${c.banned?'Unban':'Ban'}</button></td></tr>`).join('');
 cl.tBodies[0].innerHTML=s.custom.map(d=>`<tr><td>${esc(d)}</td><td style=text-align:right><button class=rmbtn data-d="${esc(d)}">remove</button></td></tr>`).join('')||'<tr><td style=color:#8b949e>none yet</td></tr>';
 if(document.activeElement!=uurl)uurl.value=s.upurl||'';

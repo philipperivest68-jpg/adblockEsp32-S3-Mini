@@ -9,6 +9,7 @@
 #include "blocklist.h"
 #include "clients.h"
 #include "dns.h"
+#include "querylog.h"
 #include "wifi.h"
 
 WebServer web(80);
@@ -227,6 +228,8 @@ void web_begin() {
     web.on("/", []() { web.send_P(200, "text/html", PAGE); });
     web.on("/stats.json", handleStats);
     web.on("/ban", handleBan);
+    web.on("/blocked.json", []() { web.send(200, "application/json", qlog.json()); });
+    web.on("/clearlog", []() { if (!requireAuth()) return; qlog.clear(); web.send(200, "text/plain", "ok"); });
     web.on("/addblock", []() { if (!requireAuth()) return; bl.addCustom(web.arg("d")); web.send(200, "text/plain", "ok"); });
     web.on("/unblock", []() { if (!requireAuth()) return; bl.removeCustom(web.arg("d")); web.send(200, "text/plain", "ok"); });
     web.on("/pause", []() { // /pause?s=300  (0 or absent = indefinite)

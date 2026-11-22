@@ -11,6 +11,7 @@
 #include "clients.h"
 #include "dns.h"
 #include "web.h"
+#include "querylog.h"
 
 void setup() {
     Serial.begin(115200);
@@ -58,6 +59,7 @@ void loop() {
     if (Serial.available() && Serial.read() == 'b')
         bl.bench(); // type 'b' in the serial monitor to benchmark lookups
     web_tick();
+    qlog.tick();
     bool busy = dns.handle();
     if (!dns.blockingOn && dns.resumeAt && (int32_t)(millis() - dns.resumeAt) >= 0) {
         dns.blockingOn = true;

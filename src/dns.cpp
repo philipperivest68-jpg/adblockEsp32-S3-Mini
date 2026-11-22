@@ -1,6 +1,7 @@
 #include "dns.h"
 #include "blocklist.h"
 #include "clients.h"
+#include "querylog.h"
 
 // ASCII lowercase table, filled once at startup; a table lookup avoids the
 // locale-aware tolower() call per char in the query hot path
@@ -142,11 +143,13 @@ bool Dns::handle() {
             totalBlocked++;
             if (c)
                 c->blocked++;
+            qlog.blocked(dl ? domain : "", (uint32_t)cip, qtype, ban ? QueryLog::CLIENT_BANNED : QueryLog::LIST);
         } else {
             rlen = forwardUpstream(qlen, qend);
             totalAllowed++;
             if (c)
                 c->allowed++;
+            qlog.allowed();
         }
         if (rlen > 0) {
             server.beginPacket(cip, cport);
