@@ -1,14 +1,14 @@
 // WiFi: join saved/secrets creds, else run a captive portal to provision them
 #pragma once
 #include <Arduino.h>
-#include <DNSServer.h>
+#include <WiFiUdp.h>
 #include <Preferences.h>
 
 #define DEVICE_NAME "S3MiniPihole" // setup hotspot SSID + hostname (mDNS/DHCP)
 
 struct Wifi {
     Preferences prefs;
-    DNSServer portalDns;
+    WiFiUDP portalDns;      // captive DNS: every A query -> the AP address
     String portalOpts;      // <option> list of scanned networks
 
     bool hasCreds();

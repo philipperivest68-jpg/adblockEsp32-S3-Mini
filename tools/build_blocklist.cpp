@@ -15,13 +15,12 @@
 #define HASH_BYTES 5   // must match firmware HASH_BYTES
 static const uint64_t MASK = (1ULL << (HASH_BYTES * 8)) - 1;
 
-// default lists: global ads/trackers/malware aggregators (OISD + Hagezi) + base + Russian
+// default lists: global ads/trackers/malware aggregators (OISD + Hagezi) + base
+// (NoADS_RU dropped: ~2.5M entries, the blob no longer fit the 2.375 MB partition)
 static const char *DEFAULT_SOURCES[] = {
     "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
     "https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/pro.plus-onlydomains.txt",
     "https://raw.githubusercontent.com/sjhgvr/oisd/main/domainswild2_big.txt",
-    "https://raw.githubusercontent.com/Zalexanninev15/NoADS_RU/main/hosts/blocker.txt",
-    "https://raw.githubusercontent.com/Zalexanninev15/NoADS_RU/main/hosts/blockerFL.txt",
 };
 static const int DEFAULT_COUNT = (int)(sizeof(DEFAULT_SOURCES) / sizeof(DEFAULT_SOURCES[0]));
 

@@ -5,7 +5,7 @@ server** for your home: normal domains resolve as usual, ad/tracker/malware doma
 get answered with `0.0.0.0` so they never load. One small box, every device on the
 WiFi benefits, no app to install on phones or TVs.
 
-~640,000 domains (ads, trackers, malware, plus Russian lists :) ) live in flash as
+~415,000 domains (ads, trackers, malware) live in flash as
 40-bit hashes in a bucketed index, memory-mapped and looked up on the device -
 **no PSRAM needed**.
 
@@ -190,14 +190,21 @@ flashed over USB.)
 
 Built on the host by `tools/build_blocklist.cpp` (compiled by `make blocklist`, needs
 a C++ compiler): it downloads the default lists - global aggregators **OISD Big** and
-**Hagezi Pro++**, the **StevenBlack** base, and a Russian list (**NoADS_RU**) -
-extracts domains, hashes them with fxhash to 40 bits, dedups, and writes a v2
+**Hagezi Pro++** and the **StevenBlack** base - extracts domains, hashes them with fxhash to 40 bits, dedups, and writes a v2
 bucketed container (`C3BL` magic + version + CRC32 header, then a 65536-bucket index
 + 3-byte suffixes, see `src/blfmt.h`). Edit `DEFAULT_SOURCES[]` to add/remove lists
 (any hosts or AdGuard/ABP `||domain^` source works; cosmetic/regex rules are skipped).
 
+No C++ compiler (e.g. Windows)? `tools/build_blocklist.py` is a byte-identical
+Python port: `python tools/build_blocklist.py blocklist.bin`. Keep its
+`DEFAULT_SOURCES` in sync with the C++ tool.
+
+Watch the size: the partition holds ~740k domains (2.375 MB). The Russian
+NoADS_RU lists were dropped because they grew to ~2.5M entries each and pushed
+the blob to 8.8 MB, which no longer fits.
+
 On the device the blob lives in its own raw `blocklist` partition (2.375 MB -> room
-for ~800k domains) and is memory-mapped; lookups are a bucket index + a short scan.
+for ~740k domains) and is memory-mapped; lookups are a bucket index + a short scan.
 A small LittleFS holds runtime state (custom domains, bans, update config).
 
 > Only this v2 `C3BL` format works. The 5-byte flat `blocklist.bin` from
@@ -239,7 +246,7 @@ littlefs   192 KB     runtime state (custom / bans / update config)
 is split into a 16-bit prefix and a 24-bit suffix, and the list is grouped into
 65536 "buckets" by prefix. The prefix is **not stored**: the bucket a suffix lives
 in already encodes it (position = data). Only the 24-bit suffix is written =
-**3 bytes/domain**. So ~640k domains take ~2 MB, versus ~2.5 MB of raw text that
+**3 bytes/domain**. So ~415k domains take ~1.4 MB, versus ~2.5 MB of raw text that
 also wouldn't fit in RAM to search.
 
 **Fast.** A lookup is three cheap steps - no filesystem, no PSRAM, no string compares:

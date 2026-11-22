@@ -39,6 +39,50 @@ static void portalRoot() {
     web.send(200, "text/html", html);
 }
 
+// Captive DNS. Replaces Arduino's DNSServer, which (2.0.x) answers EVERY query
+// type with an IPv4 record: iOS also asks AAAA + HTTPS (type 65) for
+// captive.apple.com and stalls on those malformed answers before showing the
+// login sheet. Here A queries get the AP address, everything else a clean
+// NOERROR with no answers, so the phone moves on immediately.
+static void portalDnsHandle(WiFiUDP &udp, IPAddress apIP) {
+    uint8_t b[512];
+    for (int budget = 0; budget < 8; budget++) {
+        int sz = udp.parsePacket();
+        if (sz <= 0)
+            return;
+        int n = udp.read(b, sizeof(b));
+        udp.flush();
+        if (n < 17 || (b[2] & 0x80) || ((b[2] >> 3) & 0x0F) != 0 || b[4] != 0 || b[5] != 1)
+            continue; // not a standard single-question query
+        int i = 12;
+        while (i < n && b[i] != 0) {
+            if (b[i] & 0xC0)
+                break;
+            i += b[i] + 1;
+        }
+        if (i >= n || b[i] != 0 || i + 5 > n)
+            continue;
+        int qend = i + 5; // zero label + qtype + qclass
+        uint16_t qtype = (b[i + 1] << 8) | b[i + 2];
+        bool isA = qtype == 1 && b[i + 3] == 0 && b[i + 4] == 1;
+        b[2] = 0x84 | (b[2] & 0x01); // response, authoritative, keep RD
+        b[3] = 0x80;                 // RA=1 (stub resolvers expect it), NOERROR
+        b[6] = 0;
+        b[7] = isA ? 1 : 0;          // answers
+        b[8] = b[9] = b[10] = b[11] = 0;
+        int len = qend;
+        if (isA && qend + 16 <= (int)sizeof(b)) {
+            const uint8_t ans[] = {0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, // ptr, A, IN, TTL 10s, len 4
+                                   apIP[0], apIP[1], apIP[2], apIP[3]};
+            memcpy(b + qend, ans, sizeof(ans));
+            len += sizeof(ans);
+        }
+        udp.beginPacket(udp.remoteIP(), udp.remotePort());
+        udp.write(b, len);
+        udp.endPacket();
+    }
+}
+
 static String htmlEsc(const String &s) {
     String o;
     for (char c : s) {
@@ -212,14 +256,26 @@ void Wifi::runPortal() {
     else
         WiFi.softAP(ap);
     IPAddress apIP = WiFi.softAPIP();
-    portalDns.start(53, "*", apIP);
+    portalDns.begin(53);
     web.on("/", portalRoot);
     web.on("/wifisave", HTTP_POST, wifiSave);
     web.on("/joinstatus", joinStatus);
     web.on("/wifidone", wifiDone);
-    // OS captive-detection probes (Android /generate_204, Apple /hotspot-detect.html,
-    // Windows /ncsi.txt) hit onNotFound -> redirect them so the phone auto-pops the form
+    // Apple's probe (captive.apple.com/hotspot-detect.html): serve the form right
+    // away with 200 - any answer other than "Success" opens the login sheet, and
+    // skipping the redirect saves the iPhone a round trip
+    web.on("/hotspot-detect.html", []() {
+        web.sendHeader("Cache-Control", "no-store");
+        portalRoot();
+    });
+    web.on("/library/test/success.html", []() {
+        web.sendHeader("Cache-Control", "no-store");
+        portalRoot();
+    });
+    // other OS probes (Android /generate_204, Windows /ncsi.txt, ...) hit
+    // onNotFound -> redirect them so the phone auto-pops the form
     web.onNotFound([]() {
+        web.sendHeader("Cache-Control", "no-store");
         web.sendHeader("Location", "http://192.168.4.1/", true);
         web.send(302, "text/plain", "");
     });
@@ -231,9 +287,9 @@ void Wifi::runPortal() {
     bool configured = hasCreds();
     uint32_t t0 = millis();
     while (true) {
-        portalDns.processNextRequest();
+        portalDnsHandle(portalDns, apIP);
         web.handleClient();
-        delay(2);
+        delay(1);
         if (pollJoin()) {
             configured = true;
             t0 = millis();
