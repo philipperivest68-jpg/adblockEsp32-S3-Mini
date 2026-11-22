@@ -10,7 +10,8 @@ WiFi benefits, no app to install on phones or TVs.
 **no PSRAM needed**.
 
 - Blocklist memory-mapped from a raw flash partition, ~8 us per lookup (~123k qps)
-- Web dashboard: stats, per-device counters, pause, add your own blocked domains
+- Web dashboard: stats, per-device counters, recently/top blocked domains, 24 h
+  history, pause, add your own blocked domains
 - Phone-based setup, no computer needed by the end user
 - Blocklist updates over WiFi (upload or auto-fetch from a URL); firmware flashed over USB
 
@@ -100,8 +101,15 @@ Where exactly depends on the brand:
 Once the box is online, open **`http://S3MiniPihole.local`** (or its IP) in a browser
 on the same network.
 
-- **Stats** - total blocked/allowed, domains in the list, signal, uptime
-- **Clients** - per-device counters, ban a device
+- **Stats** - total blocked/allowed, block rate (%), domains in the list, signal,
+  temperature, free RAM, uptime
+- **Last 24 hours** - one bar per hour, blocked (red) vs allowed (green); hover a
+  bar for its counts and block %
+- **Top blocked domains** - the 20 most-blocked domains with hit count and last hit
+- **Recently blocked** - the last 50 blocked queries: when, domain, which client,
+  record type (A, AAAA, HTTPS, ...) and why (on the blocklist, or the client is
+  banned). Filter by domain or client IP; *Clear* empties this and the top list.
+- **Clients** - per-device blocked/allowed counters and block %, ban a device
 - **Pause** - stop blocking for N seconds (e.g. to debug a site), then auto-resume
 - **Add a blocked domain** - type a domain and it is blocked immediately (stored on
   the box). Use this when something you don't want isn't caught by the lists.
@@ -109,7 +117,16 @@ on the same network.
 - **Blocklist update** - upload a new `blocklist.bin`, or set a URL to auto-fetch on a
   schedule (see [Remote blocklist](#remote-blocklist))
 
-State-changing actions require the dashboard login (`WEB_USER` / `WEB_PASS`).
+There is no dashboard login: anyone on your network can use the controls.
+State-changing actions require a custom request header, so other websites can't
+trigger them from a visitor's browser (CSRF).
+
+The blocked-query history lives in RAM (~10 KB) and resets on reboot; nothing is
+written to flash. Top-domain hit counts are close estimates: 64 domains are
+tracked and the least-hit one is replaced when a new one arrives. Domains longer
+than 71 characters are truncated, and a subdomain blocked via its parent (e.g.
+`x.ads.com` via `ads.com`) is shown as the name that was queried. The raw data is
+at `/blocked.json`.
 
 ---
 
@@ -119,7 +136,6 @@ State-changing actions require the dashboard login (`WEB_USER` / `WEB_PASS`).
 # 1. credentials: copy the template and fill it in
 cp src/secrets.example.h src/secrets.h
 #    WIFI_SSID/WIFI_PASS  - optional fallback (setup is usually done from the phone)
-#    WEB_USER/WEB_PASS    - dashboard login
 #    AP_PASS              - setup-AP password you hand out (>=8 chars, or "" = open)
 
 # 2. build + flash the firmware (s3 is the default env)
@@ -159,14 +175,13 @@ Copy `src/secrets.example.h` to `src/secrets.h` (gitignored) and set:
 | field | what it is | required? |
 |---|---|---|
 | `WIFI_SSID` / `WIFI_PASS` | your home WiFi, used as a **fallback** if the box has no saved network. Leave as `YOUR_WIFI_SSID` to skip - setup is normally done from the phone (captive portal). Handy if you flash for your own network. | optional |
-| `WEB_USER` / `WEB_PASS` | **dashboard login** (HTTP Basic Auth). Guards every control action (ban, add/remove domain, pause, blocklist upload, forget-wifi). Set a real `WEB_PASS` before putting the box on a network you share. The dashboard shows a red warning while it's the placeholder. | set before use |
 | `AP_PASS` | password for the box's **setup WiFi** (`S3MiniPihole`) shown during provisioning. `>=8` chars turns on WPA2 so only someone you gave it to can open the setup page; **empty string = open** (anyone nearby can). This is the password you hand out with the box. | recommended |
 
 The device name (setup hotspot SSID, DHCP hostname, mDNS `.local` name, dashboard
 title) is `DEVICE_NAME` in `src/wifi_portal.h`.
 
-Only `WEB_PASS` and `AP_PASS` matter for security; WiFi is usually set from the phone,
-not here. (There is no `OTA_PASS` - network firmware update was removed; firmware is
+There is no dashboard login (see [Dashboard](#dashboard)), so `AP_PASS` is the only
+security setting; WiFi is usually set from the phone, not here. (There is no `OTA_PASS` - network firmware update was removed; firmware is
 flashed over USB.)
 
 ---
@@ -242,7 +257,7 @@ did one random filesystem read per lookup (~1.2 ms); mmap + buckets dropped that
 
 Modules: `blocklist` (hash + mmap lookup), `dns` (server, forward upstream),
 `wifi_portal` (connect + captive portal), `web` (dashboard), `clients` (per-device
-table). `main.cpp` is just `setup()`/`loop()`.
+table), `querylog` (recent/top blocked domains + hourly history). `main.cpp` is just `setup()`/`loop()`.
 
 ---
 
@@ -253,4 +268,6 @@ table). `main.cpp` is just `setup()`/`loop()`.
 - Harmless at boot: `No core dump partition found!` (the layout has none) and
   LittleFS "does not exist" lines for `custom.txt` / `banned.txt` / `update.cfg`
   until you first use those features.
-- Security: set real `WEB_PASS` and `AP_PASS` before giving the box to anyone.
+- Security: the dashboard has no login, so anyone on your network can change
+  settings - only put the box on a network you trust. Set a real `AP_PASS` before
+  giving the box to anyone.
