@@ -1,4 +1,6 @@
 ENV  ?= s3
+# esptool chip name for blobflash, derived from ENV (override with CHIP=...)
+CHIP ?= $(if $(filter c3,$(ENV)),esp32c3,$(if $(filter esp32dev,$(ENV)),esp32,esp32s3))
 PORT ?= /dev/ttyUSB0
 BAUD ?= 115200
 BLOB ?= blocklist.bin
@@ -27,7 +29,7 @@ upload:
 	pio run -e $(ENV) -t upload --upload-port $(PORT)
 
 blobflash:
-	esptool --chip esp32s3 --port $(PORT) --baud 460800 write-flash $(BLOFF) $(BLOB)
+	esptool --chip $(CHIP) --port $(PORT) --baud 460800 write-flash $(BLOFF) $(BLOB)
 
 flash: upload blobflash
 

@@ -159,8 +159,14 @@ this code as-is.
 
 With `make` (Linux/macOS): `make upload`, `make blobflash`, `make flash` (both),
 `make monitor`, `make dev`, `make erase`, `make blocklist`. Defaults: `ENV=s3`;
-override like `make flash PORT=/dev/ttyACM0`. `blobflash` targets `esp32s3` -
-change `--chip` in the Makefile for another board.
+override like `make flash PORT=/dev/ttyACM0`. `blobflash` picks the chip from `ENV`
+(`s3` -> `esp32s3`, `c3` -> `esp32c3`, `esp32dev` -> `esp32`), e.g.
+`make flash ENV=c3 PORT=/dev/ttyACM0`.
+
+**ESP32-C3** (4 MB flash) works too: `pio run -e c3 -t upload --upload-port COMxx`,
+then write the blocklist with `--chip esp32c3` (same `0x170000` offset). Cheap C3
+"Super Mini" boards often have weak antennas; if one won't join your WiFi, lower
+its TX power (`WiFi.setTxPower(WIFI_POWER_8_5dBm)`).
 
 Firmware changes go over USB (single-app layout, no firmware OTA). The **blocklist
 updates over WiFi** from the dashboard - it is written straight into its flash
